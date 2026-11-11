@@ -10,9 +10,12 @@
     },
     "preview": {
       "distribution": "internal",
-      "android": {
-        "buildType": "apk"
-      }
+  "android": {
+    "buildType": "apk"
+  },
+  "preInstall": [
+    "npm install --legacy-peer-deps"
+  ]
     },
     "production": {
       "autoIncrement": true
