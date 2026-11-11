@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,40 +6,120 @@ import {
   TouchableOpacity,
   StyleSheet,
   StatusBar,
-  KeyboardAvoidingView,
-  Platform,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
+import * as LocalAuthentication from 'expo-local-authentication';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors } from '../styles/theme';
+import { loginUser } from '../services/api';
 
 export default function Login({ navigation }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [hasBiometricsSaved, setHasBiometricsSaved] = useState(false);
 
-  const handleLogin = () => {
-    // POST /api/v1/login backend Python
-    navigation.replace('Inicio');
+  // Al cargar la pantalla, verificamos si hay una sesión previa o credenciales guardadas
+  useEffect(() => {
+    checkSavedCredentials();
+  }, []);
+
+  const checkSavedCredentials = async () => {
+    try {
+      const savedEmail = await AsyncStorage.getItem('user_email');
+      const savedToken = await AsyncStorage.getItem('user_token');
+      
+      if (savedEmail && savedToken) {
+        setHasBiometricsSaved(true);
+        // Opcional: Podríamos lanzar la biometría automáticamente al abrir la app
+        // handleBiometricLogin();
+      }
+    } catch (error) {
+      console.log('Error leyendo credenciales guardadas:', error);
+    }
+  };
+
+  // Función de Login tradicional (Correo y Contraseña)
+  const handleLogin = async () => {
+    if (!email || !password) {
+      Alert.alert('Campos vacíos', 'Por favor ingresa tu correo y contraseña.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const data = await loginUser(email, password);
+      
+      if (data && data.access_token) {
+        // Guardamos el token y el correo para futuras autenticaciones biométricas
+        await AsyncStorage.setItem('user_token', data.access_token);
+        await AsyncStorage.setItem('user_email', email);
+
+        navigation.replace('Inicio');
+      } else {
+        Alert.alert('Error', 'Credenciales inválidas.');
+      }
+    } catch (error) {
+      console.log('Error en login:', error);
+      Alert.alert('Error de conexión', 'No se pudo conectar con el servidor backend.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Función de Inicio de Sesión por Biometría (Huella / FaceID)
+  const handleBiometricLogin = async () => {
+    try {
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+
+      if (!hasHardware || !isEnrolled) {
+        Alert.alert('Aviso', 'Este dispositivo no tiene configurada biometría.');
+        return;
+      }
+
+      const authResult = await LocalAuthentication.authenticateAsync({
+        promptMessage: 'Inicia sesión con tu huella o rostro',
+        fallbackLabel: 'Usar contraseña',
+        cancelLabel: 'Cancelar',
+      });
+
+      if (authResult.success) {
+        // Verificamos si tenemos un token guardado previamente en el dispositivo
+        const savedToken = await AsyncStorage.getItem('user_token');
+        
+        if (savedToken) {
+          // Si el token existe, entramos directamente a la app
+          navigation.replace('Inicio');
+        } else {
+          Alert.alert(
+            'Primera vez',
+            'Por favor inicia sesión con tu correo y contraseña al menos una vez para registrar el perfil biométrico.'
+          );
+        }
+      } else {
+        Alert.alert('Autenticación cancelada', 'No se pudo verificar tu identidad.');
+      }
+    } catch (error) {
+      console.log('Error en biometría de login:', error);
+      Alert.alert('Error', 'Ocurrió un error al procesar la biometría.');
+    }
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}
-    >
+    <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={colors.background} />
 
       <View style={styles.headerContainer}>
-        <View style={styles.logoBadge}>
-          <Text style={styles.logoBadgeText}>P</Text>
-        </View>
-        <Text style={styles.brandTitle}>PASS</Text>
-        <Text style={styles.subtitle}>Billetera de Credenciales NFC</Text>
+        <Text style={styles.title}>Pass Digital</Text>
+        <Text style={styles.subtitle}>Wallet Institucional Segura</Text>
       </View>
 
       <View style={styles.formContainer}>
-        <Text style={styles.label}>Correo Institucional / Usuario</Text>
         <TextInput
           style={styles.input}
-          placeholder="usuario@institucion.edu.co"
+          placeholder="Correo electrónico"
           placeholderTextColor={colors.textSecondary}
           value={email}
           onChangeText={setEmail}
@@ -47,34 +127,42 @@ export default function Login({ navigation }) {
           keyboardType="email-address"
         />
 
-        <Text style={styles.label}>Contraseña</Text>
         <TextInput
           style={styles.input}
-          placeholder="••••••••"
+          placeholder="Contraseña"
           placeholderTextColor={colors.textSecondary}
           value={password}
           onChangeText={setPassword}
           secureTextEntry
         />
 
-        <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
-          <Text style={styles.loginButtonText}>Iniciar Sesión</Text>
+        <TouchableOpacity
+          style={styles.loginButton}
+          onPress={handleLogin}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color={colors.background} />
+          ) : (
+            <Text style={styles.loginButtonText}>Iniciar Sesión</Text>
+          )}
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.biometricButton} onPress={handleLogin}>
-          <Text style={styles.biometricText}>Ingresar con Biometría (Huella / Face ID)</Text>
+        {/* Botón de acceso rápido por Biometría */}
+        <TouchableOpacity
+          style={styles.biometricButton}
+          onPress={handleBiometricLogin}
+        >
+          <Text style={styles.biometricButtonText}>🛡️ Ingresar con Biometría</Text>
         </TouchableOpacity>
-
-        <View style={styles.linksContainer}>
-          <TouchableOpacity>
-            <Text style={styles.linkText}>¿Olvidaste tu contraseña?</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => navigation.navigate('VincularCarnet')}>
-            <Text style={styles.linkText}>Registrar credencial inicial</Text>
-          </TouchableOpacity>
-        </View>
       </View>
-    </KeyboardAvoidingView>
+
+      <View style={styles.footerContainer}>
+        <Text style={styles.footerText}>
+          Seguridad cifrada respaldada por FastAPI & JWT
+        </Text>
+      </View>
+    </View>
   );
 }
 
@@ -82,69 +170,47 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 24,
+    paddingVertical: 50,
   },
   headerContainer: {
     alignItems: 'center',
-    marginBottom: 36,
+    marginTop: 20,
   },
-  logoBadge: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    backgroundColor: colors.surface,
-    borderWidth: 2,
-    borderColor: colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  logoBadgeText: {
-    fontSize: 32,
-    fontWeight: 'bold',
+  title: {
     color: colors.primary,
-  },
-  brandTitle: {
-    fontSize: 36,
+    fontSize: 28,
     fontWeight: 'bold',
-    color: colors.primary,
-    letterSpacing: 3,
+    marginBottom: 8,
   },
   subtitle: {
-    fontSize: 14,
     color: colors.textSecondary,
-    marginTop: 4,
+    fontSize: 14,
   },
   formContainer: {
     width: '100%',
   },
-  label: {
-    color: colors.textPrimary,
-    fontSize: 13,
-    marginBottom: 8,
-    fontWeight: '600',
-  },
   input: {
     backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.surfaceBorder,
-    borderRadius: 12,
+    color: colors.textPrimary,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    color: colors.textPrimary,
+    borderRadius: 12,
     fontSize: 14,
-    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    marginBottom: 14,
   },
   loginButton: {
     backgroundColor: colors.primary,
-    borderRadius: 12,
     paddingVertical: 16,
+    borderRadius: 12,
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: 6,
   },
   loginButtonText: {
-    color: '#000000',
+    color: colors.background,
     fontWeight: 'bold',
     fontSize: 15,
   },
@@ -152,23 +218,22 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.primary,
-    borderRadius: 12,
     paddingVertical: 14,
+    borderRadius: 12,
     alignItems: 'center',
     marginTop: 12,
   },
-  biometricText: {
+  biometricButtonText: {
     color: colors.primary,
-    fontSize: 13,
-    fontWeight: '600',
+    fontWeight: 'bold',
+    fontSize: 14,
   },
-  linksContainer: {
-    marginTop: 24,
+  footerContainer: {
     alignItems: 'center',
-    gap: 12,
   },
-  linkText: {
+  footerText: {
     color: colors.textSecondary,
-    fontSize: 13,
+    fontSize: 11,
+    textAlign: 'center',
   },
 });

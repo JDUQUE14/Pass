@@ -1,4 +1,12 @@
 {
   "name": "pass",
-  "displayName": "pass"
+  "displayName": "pass",
+  "extra": {
+    "eas": {
+      "projectId": "67f63c81-73af-45d2-81f1-b241dcf2ee9a"
+    }
+  },
+  "android": {
+    "package": "com.jduque14.pass"
+  }
 }

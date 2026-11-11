@@ -1,26 +1,41 @@
-import React from 'react';
-import { View, Text, StyleSheet, StatusBar, TouchableOpacity, ScrollView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  StatusBar, 
+  TouchableOpacity, 
+  ScrollView, 
+  ActivityIndicator, 
+  Alert 
+} from 'react-native';
 import { colors } from '../styles/theme';
+import { getUserCards } from '../services/api'; // <-- Importamos la función de la API
 
 export default function Inicio({ navigation }) {
-  const carnets = [
-    {
-      id: '1',
-      institucion: 'PASCUAL BRAVO',
-      nombre: 'Usuario Activo',
-      rol: 'Estudiante',
-      estado: 'Activo',
-      codigo: 'CC-10203040',
-    },
-    {
-      id: '2',
-      institucion: 'BIBLIOTECA CENTRAL',
-      nombre: 'Usuario Activo',
-      rol: 'Lector Frecuente',
-      estado: 'Activo',
-      codigo: 'BIB-998822',
-    },
-  ];
+  const [carnets, setCarnets] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // Función para cargar los carnets al abrir la pantalla
+  const fetchCarnets = async () => {
+    try {
+      setLoading(true);
+      const data = await getUserCards(); // Petición GET al endpoint /cards
+      setCarnets(data);
+    } catch (error) {
+      Alert.alert('Error', typeof error === 'string' ? error : 'No se pudieron cargar los carnets');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Se ejecuta cada vez que la pantalla entra en foco o se monta
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      fetchCarnets();
+    });
+    return unsubscribe;
+  }, [navigation]);
 
   return (
     <View style={styles.container}>
@@ -49,23 +64,31 @@ export default function Inicio({ navigation }) {
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.sectionTitle}>Tus Carnets Digitales</Text>
 
-        {carnets.map((item) => (
-          <TouchableOpacity
-            key={item.id}
-            style={styles.card}
-            onPress={() => navigation.navigate('DetalleNFC', { carnet: item })}
-          >
-            <View style={styles.cardHeader}>
-              <Text style={styles.cardInst}>{item.institucion}</Text>
-              <View style={styles.badgeActive}>
-                <Text style={styles.badgeText}>{item.estado}</Text>
+        {loading ? (
+          <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 40 }} />
+        ) : carnets.length === 0 ? (
+          <Text style={styles.emptyText}>No tienes carnets vinculados todavía.</Text>
+        ) : (
+          carnets.map((item) => (
+            <TouchableOpacity
+              key={item.id}
+              style={styles.card}
+              onPress={() => navigation.navigate('DetalleNFC', { carnet: item })}
+            >
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardInst}>{item.institution_name}</Text>
+                <View style={styles.badgeActive}>
+                  <Text style={styles.badgeText}>{item.is_active ? 'Activo' : 'Inactivo'}</Text>
+                </View>
               </View>
-            </View>
-            <Text style={styles.cardName}>{item.nombre}</Text>
-            <Text style={styles.cardRole}>{item.rol} • {item.codigo}</Text>
-            <Text style={styles.cardAction}>Toca para transmitir NFC →</Text>
-          </TouchableOpacity>
-        ))}
+              <Text style={styles.cardName}>Usuario Activo</Text>
+              <Text style={styles.cardRole}>
+                {item.role} - {item.card_number}
+              </Text>
+              <Text style={styles.cardAction}>Toca para transmitir NFC →</Text>
+            </TouchableOpacity>
+          ))
+        )}
 
         {/* Botonera */}
         <TouchableOpacity
@@ -99,6 +122,7 @@ const styles = StyleSheet.create({
   cardName: { color: colors.textPrimary, fontSize: 20, fontWeight: 'bold' },
   cardRole: { color: colors.textSecondary, fontSize: 13, marginTop: 4 },
   cardAction: { color: colors.primary, fontSize: 12, fontWeight: '600', marginTop: 16, textAlign: 'right' },
+  emptyText: { color: colors.textSecondary, textAlign: 'center', marginTop: 20, fontSize: 14 },
   addButton: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary, borderRadius: 12, paddingVertical: 16, alignItems: 'center', marginTop: 8 },
   addButtonText: { color: colors.primary, fontWeight: 'bold', fontSize: 14 },
 });

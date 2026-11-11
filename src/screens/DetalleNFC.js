@@ -1,26 +1,81 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, StatusBar, TouchableOpacity, Animated } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  StatusBar,
+  TouchableOpacity,
+  ActivityIndicator,
+  Alert,
+} from 'react-native';
+import * as LocalAuthentication from 'expo-local-authentication';
 import { colors } from '../styles/theme';
+import { createAccessLog } from '../services/api';
 
 export default function DetalleNFC({ route, navigation }) {
-  const carnet = route.params?.carnet || {
-    institucion: 'PASCUAL BRAVO',
-    nombre: 'Usuario Activo',
-    rol: 'Estudiante',
-    codigo: 'CC-10203040',
+  const { carnet } = route.params || {};
+  const [transmitting, setTransmitting] = useState(false);
+
+  // Función que maneja la autenticación biométrica antes del NFC
+  const handleStartNFC = async () => {
+    try {
+      // 1. Verificamos si el dispositivo soporta biometría
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+
+      if (!hasHardware || !isEnrolled) {
+        // Si el emulador o dispositivo no tiene biometría configurada, avisamos pero dejamos continuar para pruebas
+        Alert.alert(
+          'Aviso Biometría',
+          'Este dispositivo no tiene huella/rostro configurado. Se omitirá el paso biométrico para fines de prueba.',
+          [{ text: 'Continuar', onPress: executeNfcTransmission }]
+        );
+        return;
+      }
+
+      // 2. Lanzamos el prompt biométrico del sistema (Huella / FaceID)
+      const authResult = await LocalAuthentication.authenticateAsync({
+        promptMessage: 'Autentícate para transmitir credencial NFC',
+        fallbackLabel: 'Usar contraseña',
+        cancelLabel: 'Cancelar',
+      });
+
+      if (authResult.success) {
+        // Si la biometría es exitosa, procedemos con el NFC
+        executeNfcTransmission();
+      } else {
+        Alert.alert('Autenticación fallida', 'No se pudo verificar tu identidad. Transmisión cancelada.');
+      }
+    } catch (error) {
+      console.log('Error en biometría:', error);
+      Alert.alert('Error', 'Ocurrió un error al intentar validar la biometría.');
+    }
   };
 
-  const [transmitting, setTransmitting] = useState(false);
-  const [resultStatus, setResultStatus] = useState(null); // 'success' | 'denied' | null
-
-  const handleStartHCE = () => {
+  // Función que simula la transmisión NFC y guarda en el backend
+  const executeNfcTransmission = () => {
     setTransmitting(true);
-    setResultStatus(null);
 
-    // Simulación de respuesta HCE desde lector físico
-    setTimeout(() => {
+    setTimeout(async () => {
       setTransmitting(false);
-      setResultStatus('success');
+
+      const logData = {
+        location: `Torniquete - ${carnet?.institution_name || 'General'}`,
+        status: 'Exitoso',
+        card_id: carnet?.id,
+      };
+
+      try {
+        await createAccessLog(logData);
+      } catch (error) {
+        console.log('No se pudo registrar el acceso en el servidor:', error);
+      }
+
+      Alert.alert(
+        'Acceso Concedido',
+        `Credencial "${carnet?.card_number || 'N/A'}" transmitida con éxito al lector NFC.`,
+        [{ text: 'OK' }]
+      );
     }, 3000);
   };
 
@@ -28,86 +83,168 @@ export default function DetalleNFC({ route, navigation }) {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={colors.background} />
 
-{/* Header */}
-<View style={styles.header}>
-  <TouchableOpacity 
-    onPress={() => navigation.navigate('Inicio')}
-    hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
-    style={styles.backButton}
-  >
-    <Text style={styles.backText}>← Volver</Text>
-  </TouchableOpacity>
-  <Text style={styles.headerTitle}>Emisión NFC</Text>
-  <View style={{ width: 60 }} />
-</View>
-      {/* Informacion Superior del Carnet */}
-      <View style={styles.cardDetails}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>ID</Text>
-        </View>
-        <Text style={styles.instText}>{carnet.institucion}</Text>
-        <Text style={styles.nameText}>{carnet.nombre}</Text>
-        <Text style={styles.roleText}>{carnet.rol} • {carnet.codigo}</Text>
-        <Text style={styles.qrPlaceholder}>[ Código QR Respaldo ]</Text>
-      </View>
-
-      {/* Área Inferior - Emulación NFC HCE */}
-      <View style={styles.nfcArea}>
-        {resultStatus === 'success' && (
-          <View style={styles.bannerSuccess}>
-            <Text style={styles.bannerText}>✓ ACCESO PERMITIDO</Text>
-          </View>
-        )}
-
-        {resultStatus === 'denied' && (
-          <View style={styles.bannerDenied}>
-            <Text style={styles.bannerText}>✕ ACCESO DENEGADO</Text>
-          </View>
-        )}
-
+      {/* Header */}
+      <View style={styles.header}>
         <TouchableOpacity
-          style={[styles.nfcButton, transmitting && styles.nfcButtonActive]}
-          onPress={handleStartHCE}
-          disabled={transmitting}
+          onPress={() => navigation.goBack()}
+          hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
+          style={styles.backButton}
         >
-          <Text style={styles.nfcButtonText}>
-            {transmitting ? 'Transmitiendo token...' : 'Aproximar al Lector (NFC)'}
-          </Text>
+          <Text style={styles.backText}>← Volver</Text>
         </TouchableOpacity>
-
-        <Text style={styles.nfcHint}>
-          {transmitting
-            ? 'Acerca la parte trasera de tu teléfono al sensor.'
-            : 'Presiona el botón para activar Host Card Emulation (HCE).'}
-        </Text>
+        <Text style={styles.headerTitle}>Transmisión NFC Segura</Text>
+        <View style={{ width: 60 }} />
       </View>
+
+      {/* Tarjeta con los datos */}
+      <View style={styles.cardContainer}>
+        <Text style={styles.institutionName}>
+          {carnet?.institution_name || 'Institución no especificada'}
+        </Text>
+        <Text style={styles.cardRole}>{carnet?.role || 'Estudiante'}</Text>
+        <Text style={styles.cardNumber}>Código: {carnet?.card_number || '000000'}</Text>
+      </View>
+
+      {/* Área central */}
+      <View style={styles.nfcArea}>
+        {transmitting ? (
+          <View style={styles.transmittingContainer}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={styles.nfcStatusText}>Transmitiendo por campo NFC...</Text>
+            <Text style={styles.nfcSubText}>Acercando al torniquete de acceso</Text>
+          </View>
+        ) : (
+          <View style={styles.idleContainer}>
+            <View style={styles.nfcIconCircle}>
+              <Text style={styles.nfcIcon}>🛡️📡</Text>
+            </View>
+            <Text style={styles.nfcStatusText}>Protegido con Biometría</Text>
+            <Text style={styles.nfcSubText}>
+              Presiona el botón para validar tu identidad y transmitir.
+            </Text>
+          </View>
+        )}
+      </View>
+
+      {/* Botón */}
+      <TouchableOpacity
+        style={[styles.actionButton, transmitting && styles.actionButtonDisabled]}
+        onPress={handleStartNFC}
+        disabled={transmitting}
+      >
+        <Text style={styles.actionButtonText}>
+          {transmitting ? 'PROCESANDO...' : 'INICIAR NFC CON BIOMETRÍA'}
+        </Text>
+      </TouchableOpacity>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background, paddingTop: 40, paddingHorizontal: 20 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  backText: { color: colors.primary, fontSize: 15, fontWeight: 'bold' },
-  headerTitle: { color: colors.textPrimary, fontSize: 16, fontWeight: 'bold' },
-  cardDetails: { backgroundColor: colors.surface, borderRadius: 16, padding: 24, alignItems: 'center', borderWidth: 1, borderColor: colors.surfaceBorder },
-  avatar: { width: 70, height: 70, borderRadius: 35, backgroundColor: colors.background, borderWidth: 2, borderColor: colors.primary, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
-  avatarText: { color: colors.primary, fontWeight: 'bold', fontSize: 20 },
-  instText: { color: colors.primary, fontSize: 12, fontWeight: 'bold', letterSpacing: 1.5 },
-  nameText: { color: colors.textPrimary, fontSize: 22, fontWeight: 'bold', marginTop: 4 },
-  roleText: { color: colors.textSecondary, fontSize: 13, marginTop: 2 },
-  qrPlaceholder: { color: colors.textSecondary, fontSize: 11, marginTop: 16, fontStyle: 'italic' },
-  nfcArea: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  bannerSuccess: { backgroundColor: '#059669', paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8, marginBottom: 20 },
-  bannerDenied: { backgroundColor: colors.danger, paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8, marginBottom: 20 },
-  bannerText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 14 },
-  nfcButton: { backgroundColor: colors.primary, width: '100%', paddingVertical: 18, borderRadius: 14, alignItems: 'center' },
-  nfcButtonActive: { backgroundColor: '#00C8BC' },
-  nfcButtonText: { color: '#000000', fontWeight: 'bold', fontSize: 16 },
-  nfcHint: { color: colors.textSecondary, fontSize: 12, marginTop: 12, textAlign: 'center' },
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+    paddingTop: 40,
+    paddingHorizontal: 20,
+    justifyContent: 'space-between',
+    paddingBottom: 30,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
   backButton: {
     paddingVertical: 8,
-  paddingRight: 12,
-  zIndex: 10,
-},
+    paddingRight: 12,
+    zIndex: 10,
+  },
+  backText: {
+    color: colors.primary,
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  headerTitle: {
+    color: colors.textPrimary,
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  cardContainer: {
+    backgroundColor: colors.surface,
+    padding: 20,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    alignItems: 'center',
+  },
+  institutionName: {
+    color: colors.primary,
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  cardRole: {
+    color: colors.textPrimary,
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  cardNumber: {
+    color: colors.textSecondary,
+    fontSize: 13,
+  },
+  nfcArea: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginVertical: 20,
+  },
+  idleContainer: {
+    alignItems: 'center',
+  },
+  transmittingContainer: {
+    alignItems: 'center',
+  },
+  nfcIconCircle: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: colors.surface,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  nfcIcon: {
+    fontSize: 32,
+  },
+  nfcStatusText: {
+    color: colors.textPrimary,
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  nfcSubText: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    marginTop: 6,
+    textAlign: 'center',
+    paddingHorizontal: 20,
+  },
+  actionButton: {
+    backgroundColor: colors.primary,
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  actionButtonDisabled: {
+    opacity: 0.6,
+  },
+  actionButtonText: {
+    color: colors.background,
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
 });
